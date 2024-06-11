@@ -1,4 +1,7 @@
+using MassTransit;
+using MassTransit.Testing;
 using Microsoft.AspNetCore.Mvc;
+using Play.Catalog.Contracts;
 using Play.Catalog.Service.Dtos;
 using Play.Catalog.Service.Entities;
 using Play.Catalog.Service.Extensions;
@@ -11,35 +14,19 @@ namespace Play.Catalog.Service.Controllers
     public class ItemsController : ControllerBase
     {
         private readonly IRepository<Item> itemsRepository;
-        private static int requestCounter = 0;
-        public ItemsController(IRepository<Item> itemsRepository)
+        private readonly IPublishEndpoint publishEndpoint;
+        public ItemsController(IRepository<Item> itemsRepository, IPublishEndpoint publishEndpoint)
         {
             this.itemsRepository = itemsRepository;
+            this.publishEndpoint = publishEndpoint;
         }
 
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ItemDto>>> GetAsync()
         {
-            requestCounter++;
-
-            Console.WriteLine($"Request {requestCounter}: Starting...");
-
-            if (requestCounter <= 2)
-            {
-                Console.WriteLine($"Request {requestCounter}: Delaying...");
-                await Task.Delay(TimeSpan.FromSeconds(10));
-            }
-
-            if (requestCounter <= 4)
-            {
-                Console.WriteLine($"Request {requestCounter}: 500 (Internal Server Error).");
-                return StatusCode(500);
-            }
-
             var items = (await itemsRepository.GetAllAsync())
                             .Select(item => item.AsDto());
 
-            Console.WriteLine($"Request {requestCounter}: 200 (OK).");
             return Ok(items);
         }
 
@@ -62,6 +49,8 @@ namespace Play.Catalog.Service.Controllers
                 CreatedDate = DateTimeOffset.UtcNow
             };
             await itemsRepository.CreateAsync(item);
+            // publish a message when new item is created
+            await publishEndpoint.Publish(new CatalogItemCreated(item.Id, item.Name, item.Description));
             // return 201 and the link reference to new item by item id
             return CreatedAtAction(nameof(GetByIdAsync), new { id = item.Id }, item);
         }
@@ -79,6 +68,8 @@ namespace Play.Catalog.Service.Controllers
 
             await itemsRepository.UpdateAsync(item);
 
+            await publishEndpoint.Publish(new CatalogItemUpdated(item.Id, item.Name, item.Description));
+
             return NoContent();
         }
 
@@ -89,6 +80,8 @@ namespace Play.Catalog.Service.Controllers
             if (item == null) return BadRequest("Can't find this item");
 
             await itemsRepository.DeleteAsync(item.Id);
+
+            await publishEndpoint.Publish(new CatalogItemDeleted(id));
 
             return NoContent();
         }
