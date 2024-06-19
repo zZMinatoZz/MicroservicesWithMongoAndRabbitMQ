@@ -1,6 +1,8 @@
 using MassTransit;
 using MassTransit.Testing;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
+using Newtonsoft.Json;
 using Play.Catalog.Contracts;
 using Play.Catalog.Service.Dtos;
 using Play.Catalog.Service.Entities;
@@ -15,17 +17,26 @@ namespace Play.Catalog.Service.Controllers
     {
         private readonly IRepository<Item> itemsRepository;
         private readonly IPublishEndpoint publishEndpoint;
-        public ItemsController(IRepository<Item> itemsRepository, IPublishEndpoint publishEndpoint)
+        private readonly ICacheService cacheService;
+        public ItemsController(IRepository<Item> itemsRepository, IPublishEndpoint publishEndpoint, ICacheService cacheService)
         {
             this.itemsRepository = itemsRepository;
             this.publishEndpoint = publishEndpoint;
+            this.cacheService = cacheService;
         }
 
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ItemDto>>> GetAsync()
         {
+            string key = "items-catalog";
+            var itemsCached = cacheService.GetData<IEnumerable<ItemDto>>(key);
+
+            if (itemsCached != null) return Ok(itemsCached);
+
             var items = (await itemsRepository.GetAllAsync())
                             .Select(item => item.AsDto());
+
+            cacheService.SetData<IEnumerable<ItemDto>>(key, items, DateTimeOffset.Now.AddMinutes(5));
 
             return Ok(items);
         }
@@ -33,9 +44,19 @@ namespace Play.Catalog.Service.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<ItemDto>> GetByIdAsync(Guid id)
         {
-            var item = await itemsRepository.GetAsync(id);
-            if (item == null) return NotFound();
-            return item.AsDto();
+            string key = $"item-{id}";
+            var cachedItem = cacheService.GetData<Item>(key);
+            if (cachedItem is null)
+            {
+                var item = await itemsRepository.GetAsync(id);
+
+                if (item == null) return NotFound();
+
+                cacheService.SetData<Item>(key, item, DateTimeOffset.Now.AddMinutes(5));
+
+                return item.AsDto();
+            }
+            return cachedItem.AsDto();
         }
 
         [HttpPost]
