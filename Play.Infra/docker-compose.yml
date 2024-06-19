@@ -21,6 +21,15 @@ services:
       - rabbitmqdata:/var/lib/rabbitmq
     hostname: rabbitmq
 
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - 6379:6379
+    volumes:
+      - redisdata:/data
+
 volumes:
   mongodbdata:
   rabbitmqdata:
+  redisdata:
