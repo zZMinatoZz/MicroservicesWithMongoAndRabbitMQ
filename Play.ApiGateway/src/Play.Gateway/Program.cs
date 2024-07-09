@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -6,8 +8,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+builder.Services
+    .AddRateLimiter(opt =>
+    {
+        opt.AddFixedWindowLimiter("fixedWindowPolicy", option =>
+        {
+            // 3 requests each 10 seconds
+            option.Window = TimeSpan.FromSeconds(10);
+            option.PermitLimit = 3;
+        });
+    })
+    .AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 var app = builder.Build();
 
@@ -21,5 +32,6 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapReverseProxy();
+app.UseRateLimiter();
 
 app.Run();
